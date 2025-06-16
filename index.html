@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang = "en">
+<head>
+  <meta charset="UTF-8">
+  <title>Guess Number</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 100px; }
+    input, button { padding: 8px 16px; font-size: 16px; }
+    #log { margin-top: 20px; font-size: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Guess Number</h1>
+  <p>輸入 1 到 100 的數字進行猜測</p>
+  <input id="guessInput" type="number" min="1" max="100" />
+  <button onclick="submitGuess()">猜！</button>
+
+  <div id="log"></div>
+
+  <script src="https://cdn.ably.io/lib/ably.min-1.js"></script>
+  <script>
+    const ably = new Ably.Realtime('fy4y5Q.BlDeNQ:Vqr5eGkxUhHJN80Ipr7-0-dnN7AmmjCY4CHpdqfKAw8');
+    const channel = ably.channels.get('guess-the-number-room');
+
+    const playerId = Math.random().toString(36).substring(2, 10); // 隨機玩家 ID
+    let isHost = false;
+    let hasWon = false;
+    let targetNumber = null;
+
+    // 紀錄誰是第一個進來的
+    channel.presence.enter(playerId, () => {
+      channel.presence.get((err, members) => {
+        if (members.length === 1) {
+          isHost = true;
+          targetNumber = Math.floor(Math.random() * 100) + 1;
+          channel.publish('target', { number: targetNumber });
+          log('你是主持人，目標數字是：' + targetNumber);
+        } else {
+          log('等待主持人設定目標數字...');
+        }
+      });
+    });
+
+    // 接收目標數字（非 host 的玩家用）
+    channel.subscribe('target', msg => {
+      if (!isHost) {
+        targetNumber = msg.data.number;
+        log('目標數字已設定！開始猜吧！');
+      }
+    });
+
+    // 玩家發送猜測
+    function submitGuess() {
+      const guess = parseInt(document.getElementById('guessInput').value);
+      if (!guess || hasWon) return;
+      channel.publish('guess', { id: playerId, guess: guess });
+    }
+
+    // 接收所有玩家猜測
+    channel.subscribe('guess', msg => {
+      const { id, guess } = msg.data;
+      if (hasWon) return;
+
+      if (guess === targetNumber) {
+        if (id === playerId) {
+          log('🎉 你猜中了！你贏了！');
+        } else {
+          log('😢 玩家 ' + id + ' 猜中了！你輸了！');
+        }
+        hasWon = true;
+      } else if (id === playerId) {
+          log('錯了，再試一次！');
+      }
+    });
+
+    function log(message) {
+      document.getElementById('log').innerText = message;
+    }
+  </script>
+</body>
+</html>
