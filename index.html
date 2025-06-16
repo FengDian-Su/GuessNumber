@@ -1,33 +1,40 @@
 <!DOCTYPE html>
-<html lang = "en">
+<html lang = "zh">
 <head>
   <meta charset="UTF-8">
-  <title>Guess Number</title>
+  <title>猜數字競賽</title>
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 100px; }
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
     input, button { padding: 8px 16px; font-size: 16px; }
-    #log { margin-top: 20px; font-size: 20px; }
+    #log, #history { margin-top: 20px; font-size: 18px; }
+    #history { text-align: left; width: 300px; margin: 20px auto; background: #f3f3f3; padding: 10px; border-radius: 8px; }
   </style>
 </head>
 <body>
-  <h1>Guess Number</h1>
+  <h1>🎯 猜數字競賽</h1>
   <p>輸入 1 到 100 的數字進行猜測</p>
   <input id="guessInput" type="number" min="1" max="100" />
   <button onclick="submitGuess()">猜！</button>
 
   <div id="log"></div>
+  <div id="history">
+    <strong>猜測紀錄：</strong>
+    <ul id="guessList"></ul>
+  </div>
 
   <script src="https://cdn.ably.io/lib/ably.min-1.js"></script>
   <script>
-    const ably = new Ably.Realtime('fy4y5Q.BlDeNQ:Vqr5eGkxUhHJN80Ipr7-0-dnN7AmmjCY4CHpdqfKAw8');
+    const ably = new Ably.Realtime('你的API_KEY'); // 👈 替換成你自己的 API 金鑰
     const channel = ably.channels.get('guess-the-number-room');
 
-    const playerId = Math.random().toString(36).substring(2, 10); // 隨機玩家 ID
+    const playerId = Math.random().toString(36).substring(2, 10);
     let isHost = false;
     let hasWon = false;
     let targetNumber = null;
 
-    // 紀錄誰是第一個進來的
+    const logEl = document.getElementById('log');
+    const guessListEl = document.getElementById('guessList');
+
     channel.presence.enter(playerId, () => {
       channel.presence.get((err, members) => {
         if (members.length === 1) {
@@ -41,7 +48,6 @@
       });
     });
 
-    // 接收目標數字（非 host 的玩家用）
     channel.subscribe('target', msg => {
       if (!isHost) {
         targetNumber = msg.data.number;
@@ -49,23 +55,28 @@
       }
     });
 
-    // 玩家發送猜測
     function submitGuess() {
       const guess = parseInt(document.getElementById('guessInput').value);
       if (!guess || hasWon) return;
       channel.publish('guess', { id: playerId, guess: guess });
     }
 
-    // 接收所有玩家猜測
     channel.subscribe('guess', msg => {
       const { id, guess } = msg.data;
+
+      // 加入到猜測紀錄
+      const item = document.createElement('li');
+      item.textContent = `玩家 ${id} 猜了：${guess}`;
+      guessListEl.appendChild(item);
+
+      // 判斷是否猜中
       if (hasWon) return;
 
       if (guess === targetNumber) {
         if (id === playerId) {
           log('🎉 你猜中了！你贏了！');
         } else {
-          log('😢 玩家 ' + id + ' 猜中了！你輸了！');
+          log(`😢 玩家 ${id} 猜中了！你輸了！`);
         }
         hasWon = true;
       } else if (id === playerId) {
@@ -74,7 +85,7 @@
     });
 
     function log(message) {
-      document.getElementById('log').innerText = message;
+      logEl.innerText = message;
     }
   </script>
 </body>
