@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang = "zh">
+<html lang="zh">
 <head>
   <meta charset="UTF-8">
   <title>猜數字競賽</title>
@@ -22,71 +22,115 @@
     <ul id="guessList"></ul>
   </div>
 
-  <script src="https://cdn.ably.io/lib/ably.min-1.js"></script>
-  <script>
-    const ably = new Ably.Realtime('你的API_KEY'); // 👈 替換成你自己的 API 金鑰
-    const channel = ably.channels.get('guess-the-number-room');
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-analytics.js";
+    import { getFirestore, doc, setDoc, updateDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+
+    // Firebase 設定
+    const firebaseConfig = {
+      apiKey: "AIzaSyCxODb4qf-JsLo8eiyG-RNvFeOmONUh_gE",
+      authDomain: "guessnumber-bf09f.firebaseapp.com",
+      projectId: "guessnumber-bf09f",
+      storageBucket: "guessnumber-bf09f.appspot.com",
+      messagingSenderId: "89018169949",
+      appId: "1:89018169949:web:44c75cb0fa8ced6795ebb4",
+      measurementId: "G-Q7P71L0FYD"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const db = getFirestore(app);
 
     const playerId = Math.random().toString(36).substring(2, 10);
     let isHost = false;
     let hasWon = false;
     let targetNumber = null;
 
+    const roomId = "room1"; // 可改成動態房號
+    const roomRef = doc(db, "games", roomId);
+
     const logEl = document.getElementById('log');
     const guessListEl = document.getElementById('guessList');
 
-    channel.presence.enter(playerId, () => {
-      channel.presence.get((err, members) => {
-        if (members.length === 1) {
-          isHost = true;
-          targetNumber = Math.floor(Math.random() * 100) + 1;
-          channel.publish('target', { number: targetNumber });
-          log('你是主持人，目標數字是：' + targetNumber);
-        } else {
-          log('等待主持人設定目標數字...');
-        }
-      });
-    });
-
-    channel.subscribe('target', msg => {
-      if (!isHost) {
-        targetNumber = msg.data.number;
-        log('目標數字已設定！開始猜吧！');
+    // 建立房間（如果還不存在）
+    async function initGameRoom() {
+      const snapshot = await getDoc(roomRef);
+      if (!snapshot.exists()) {
+        isHost = true;
+        targetNumber = Math.floor(Math.random() * 100) + 1;
+        await setDoc(roomRef, {
+          targetNumber: targetNumber,
+          hasWon: false,
+          winnerId: "",
+          guesses: []
+        });
+        log(`你是主持人，目標數字是 ${targetNumber}`);
+      } else {
+        log("等待主持人設定目標數字...");
       }
-    });
-
-    function submitGuess() {
-      const guess = parseInt(document.getElementById('guessInput').value);
-      if (!guess || hasWon) return;
-      channel.publish('guess', { id: playerId, guess: guess });
     }
 
-    channel.subscribe('guess', msg => {
-      const { id, guess } = msg.data;
+    // 監聽 Firestore 中的遊戲狀態
+    onSnapshot(roomRef, (docSnapshot) => {
+      const data = docSnapshot.data();
+      if (!data) return;
 
-      // 加入到猜測紀錄
-      const item = document.createElement('li');
-      item.textContent = `玩家 ${id} 猜了：${guess}`;
-      guessListEl.appendChild(item);
+      targetNumber = data.targetNumber;
 
-      // 判斷是否猜中
-      if (hasWon) return;
+      // 顯示猜測紀錄
+      guessListEl.innerHTML = '';
+      data.guesses.forEach(guess => {
+        const item = document.createElement('li');
+        item.textContent = `玩家 ${guess.id} 猜了：${guess.value}`;
+        guessListEl.appendChild(item);
+      });
 
-      if (guess === targetNumber) {
-        if (id === playerId) {
-          log('🎉 你猜中了！你贏了！');
-        } else {
-          log(`😢 玩家 ${id} 猜中了！你輸了！`);
+      if (data.hasWon) {
+        if (!hasWon) {
+          if (data.winnerId === playerId) {
+            log('🎉 你猜中了！你贏了！');
+          } else {
+            log(`😢 玩家 ${data.winnerId} 猜中了！你輸了！`);
+          }
+          hasWon = true;
         }
-        hasWon = true;
-      } else if (id === playerId) {
-          log('錯了，再試一次！');
       }
     });
 
+    // 提交猜測
+    async function submitGuess() {
+      const input = document.getElementById('guessInput');
+      const guess = parseInt(input.value);
+      if (!guess || guess < 1 || guess > 100 || hasWon) return;
+
+      const snapshot = await getDoc(roomRef);
+      const gameData = snapshot.data();
+
+      if (gameData.hasWon) return;
+
+      const updatedGuesses = [...gameData.guesses, { id: playerId, value: guess }];
+      const isCorrect = guess === gameData.targetNumber;
+
+      await updateDoc(roomRef, {
+        guesses: updatedGuesses,
+        hasWon: isCorrect ? true : gameData.hasWon,
+        winnerId: isCorrect ? playerId : gameData.winnerId
+      });
+
+      if (!isCorrect) {
+        log("錯了，再試一次！");
+      }
+      input.value = '';
+    }
+
+    // 顯示日誌
     function log(message) {
       logEl.innerText = message;
     }
+
+    // 初始化
+    initGameRoom();
   </script>
 </body>
 </html>
